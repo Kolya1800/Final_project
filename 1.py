@@ -1,163 +1,231 @@
 #!/usr/bin/python
+import os
+import shutil
+import argparse
+import logging
 import crypt
 import csv
 import getpass
-import pwd
-import subprocess
-import sys
-import logging
+import psutil
+import time
 
-# Setup logging
+
+# Set up centralized logging
 logging.basicConfig(
-    filename="mai.log",
+    filename="sys_admin.log",
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
+# -----------------------------
+# User Management Functions
+# -----------------------------
+
 def user_exists(username) -> bool:
+    """Check if a user exists on the system."""
     try:
-        pwd.getpwnam(username)
-        return True
-    except KeyError:
+        return username in [entry.pw_name for entry in os.scandir('/etc/passwd')]
+    except Exception as e:
+        logging.error(f"Error checking user existence: {e}")
         return False
 
 
-def create_user(username: str):
-    password = getpass.getpass(f"Enter the password for this user '{username}': ")
-    role = input(f"Give user '{username}' root access (y/n)? ")
-    en_pwd = crypt.crypt(password)
-
+def create_user(username, role, password=None):
+    """Create a single user with the specified role and password."""
     if user_exists(username):
-        logging.warning(f"The user '{username}' already exists. Skipping creation.")
-    else:
-        try:
-            subprocess.call(["useradd", "-p", en_pwd, username])
-            logging.info(f"User '{username}' created successfully.")
-        except Exception as e:
-            logging.error(f"Failed to create user '{username}': {e}")
-    if role.lower() == "y":
-        try:
-            subprocess.call(["usermod", "-aG", "root", username])
-            logging.info(f"Admin privileges granted to user '{username}'.")
-        except Exception as e:
-            logging.error(f"Failed to assign admin privileges to user '{username}': {e}")
+        logging.error(f"User '{username}' already exists.")
+        return
 
-
-def modify_user(username):
-    print("1. Change password")
-    print("2. Change role")
-    print("3. Change both")
-    mod_option = -1
-    while mod_option not in [1, 2, 3]:
-        mod_option = int(input("Select a valid option [1,2,3]: "))
-
-    if mod_option == 1:
-        new_pass = getpass.getpass(f"Enter the new password for user '{username}': ")
-        en_newpass = crypt.crypt(new_pass)
-        try:
-            subprocess.call(["usermod", "-p", en_newpass, username])
-            logging.info(f"Password updated successfully for user '{username}'.")
-        except Exception as e:
-            logging.error(f"Failed to update password for user '{username}': {e}")
-
-    if mod_option == 2:
-        new_role = input(f"Give user '{username}' root access (y/n)? ")
-        if new_role.lower() == "y":
-            try:
-                subprocess.call(["usermod", "-aG", "root", username])
-                logging.info(f"Admin privileges granted to user '{username}'.")
-            except Exception as e:
-                logging.error(f"Failed to assign admin privileges to user '{username}': {e}")
-
-    if mod_option == 3:
-        new_pass = getpass.getpass(f"Enter the new password for user '{username}': ")
-        en_newpass = crypt.crypt(new_pass)
-        try:
-            subprocess.call(["usermod", "-p", en_newpass, username])
-            logging.info(f"Password updated successfully for user '{username}'.")
-        except Exception as e:
-            logging.error(f"Failed to update password for user '{username}': {e}")
-
-        new_role = input(f"Give user '{username}' root access (y/n)? ")
-        if new_role.lower() == "y":
-            try:
-                subprocess.call(["usermod", "-aG", "root", username])
-                logging.info(f"Admin privileges granted to user '{username}'.")
-            except Exception as e:
-                logging.error(f"Failed to assign admin privileges to user '{username}': {e}")
-
-
-def create_user_two(username, role, password):
-    if user_exists(username):
-        logging.warning(f"User '{username}' already exists. Skipping creation.")
-    else:
-        en_pwd = crypt.crypt(password)
-        try:
-            subprocess.call(["useradd", "-p", en_pwd, username])
-            logging.info(f"User '{username}' created successfully.")
-            if role == "admin":
-                subprocess.call(["usermod", "-aG", "root", username])
-                logging.info(f"Admin privileges granted to user '{username}'.")
-        except Exception as e:
-            logging.error(f"Failed to create user '{username}': {e}")
-
-
-def deletes_user(username):
-    if user_exists(username):
-        try:
-            subprocess.call(["userdel", "-r", username])
-            logging.info(f"User '{username}' deleted successfully.")
-        except Exception as e:
-            logging.error(f"Failed to delete user '{username}': {e}")
-    else:
-        logging.warning(f"User '{username}' does not exist. Skipping deletion.")
-
-
-def get_option():
-    print("1. Create User")
-    print("2. Remove existing user")
-    print("3. Create users from CSV file")
-    print("4. Modify existing user")
-    print("5. Exit Program")
-    select_option = -1
-    while select_option not in [1, 2, 3, 4, 5]:
-        select_option = int(input("Select a valid option [1,2,3,4,5]: "))
-    return select_option
-
-
-def create_from_csv(filename):
     try:
-        with open(filename, "r") as fPtr:
-            reader = csv.reader(fPtr)
-            next(reader)  # Skip the header row
-            for row in reader:
-                create_user_two(row[0], row[1], row[2])
-            logging.info(f"Batch user creation from '{filename}' completed successfully.")
-    except FileNotFoundError:
-        logging.error(f"CSV file '{filename}' not found.")
+        encrypted_password = crypt.crypt(password or "defaultpass123")
+        os.system(f"useradd -m -p {encrypted_password} {username}")
+        if role == "admin":
+            os.system(f"usermod -aG sudo {username}")
+        logging.info(f"User '{username}' created with role '{role}'.")
     except Exception as e:
-        logging.error(f"Failed to create users from CSV '{filename}': {e}")
+        logging.error(f"Failed to create user '{username}': {e}")
 
+
+def delete_user(username):
+    """Delete a user from the system."""
+    if not user_exists(username):
+        logging.error(f"User '{username}' does not exist.")
+        return
+
+    try:
+        os.system(f"userdel -r {username}")
+        logging.info(f"User '{username}' deleted successfully.")
+    except Exception as e:
+        logging.error(f"Failed to delete user '{username}': {e}")
+
+
+def update_user(username, password=None):
+    """Update user details such as password."""
+    if not user_exists(username):
+        logging.error(f"User '{username}' does not exist.")
+        return
+
+    try:
+        if password:
+            encrypted_password = crypt.crypt(password)
+            os.system(f"usermod -p {encrypted_password} {username}")
+        logging.info(f"User '{username}' updated successfully.")
+    except Exception as e:
+        logging.error(f"Failed to update user '{username}': {e}")
+
+
+def create_users_from_csv(csv_file):
+    """Create multiple users from a CSV file."""
+    try:
+        with open(csv_file, "r") as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                username, role, password = row["username"], row["role"], row["password"]
+                if role not in ["admin", "user"]:
+                    logging.error(f"Invalid role '{role}' for user '{username}'. Skipping.")
+                    continue
+                create_user(username, role, password)
+        logging.info("Batch user creation completed successfully.")
+    except FileNotFoundError:
+        logging.error(f"CSV file '{csv_file}' not found.")
+    except Exception as e:
+        logging.error(f"Error creating users from CSV: {e}")
+
+
+# -----------------------------
+# File Organization Functions
+# -----------------------------
+
+def organize_files(directory):
+    """Organize files in a directory based on their type."""
+    logging.info(f"Organizing files in {directory} by type.")
+    file_types = {
+        "text_files": [".txt"],
+        "log_files": [".log"],
+        "image_files": [".jpg", ".jpeg", ".png"],
+        "pdf_files": [".pdf"],
+    }
+
+    try:
+        for folder, extensions in file_types.items():
+            folder_path = os.path.join(directory, folder)
+            os.makedirs(folder_path, exist_ok=True)
+
+            for filename in os.listdir(directory):
+                if any(filename.endswith(ext) for ext in extensions):
+                    src_path = os.path.join(directory, filename)
+                    dest_path = os.path.join(folder_path, filename)
+                    shutil.move(src_path, dest_path)
+                    logging.info(f"Moved {filename} to {folder_path}.")
+        logging.info("Directory organization complete.")
+    except Exception as e:
+        logging.error(f"Error organizing files: {e}")
+
+
+def monitor_logs(log_file):
+    """Monitor a log file for critical messages."""
+    logging.info(f"Monitoring log file: {log_file}.")
+    try:
+        with open(log_file, "r") as file:
+            for line in file:
+                if "critical" in line.lower():
+                    logging.warning(f"Critical message found: {line.strip()}")
+    except FileNotFoundError:
+        logging.error(f"Log file '{log_file}' not found.")
+    except Exception as e:
+        logging.error(f"Error monitoring log file '{log_file}': {e}")
+
+
+# -----------------------------
+# System Monitoring Functions
+# -----------------------------
+
+def monitor_system():
+    """Monitor system health."""
+    logging.info("Starting system health monitoring for 10 minutes.")
+    try:
+        with open("system_health.log", "w") as log_file:
+            for _ in range(10):
+                cpu_usage = psutil.cpu_percent()
+                memory_info = psutil.virtual_memory().percent
+                log_file.write(f"CPU: {cpu_usage}%, Memory: {memory_info}%\n")
+                logging.info(f"CPU: {cpu_usage}%, Memory: {memory_info}%")
+                if cpu_usage > 80:
+                    logging.warning(f"High CPU usage: {cpu_usage}%")
+                time.sleep(60)
+    except Exception as e:
+        logging.error(f"Error during system health monitoring: {e}")
+
+
+def check_disk_space(directory, threshold):
+    """Check disk space usage for a directory."""
+    logging.info(f"Checking disk space for {directory}.")
+    try:
+        usage = psutil.disk_usage(directory).percent
+        if usage > threshold:
+            logging.warning(f"Disk usage at {usage}%. Free up space.")
+    except FileNotFoundError:
+        logging.error(f"Directory '{directory}' not found.")
+    except Exception as e:
+        logging.error(f"Error checking disk space: {e}")
+
+
+# -----------------------------
+# Main Command-Line Interface
+# -----------------------------
 
 def main():
-    option = get_option()
-    if option == 5:
-        logging.info("Program exited by user.")
-        sys.exit()
+    parser = argparse.ArgumentParser(description="System Administration Script")
+    subparsers = parser.add_subparsers(dest="command")
 
-    uname = input("Enter the username of the user to be processed: ") if option in [1, 2, 4] else None
-    if option == 1:
-        create_user(uname)
-    elif option == 2:
-        deletes_user(uname)
-    elif option == 3:
-        csv_file = input("Enter the path to the CSV file: ")
-        create_from_csv(csv_file)
-    elif option == 4:
-        modify_user(uname)
-    else:
-        logging.error("Invalid option selected.")
+    # User Management Commands
+    user_parser = subparsers.add_parser("user", help="User management")
+    user_parser.add_argument("--create", action="store_true", help="Create a single user")
+    user_parser.add_argument("--create-batch", help="Create users from a CSV file")
+    user_parser.add_argument("--delete", action="store_true", help="Delete a user")
+    user_parser.add_argument("--update", action="store_true", help="Update a user")
+    user_parser.add_argument("--username", help="Username of the user")
+    user_parser.add_argument("--role", help="Role of the user (admin/user)")
+    user_parser.add_argument("--password", help="Password for the user")
 
+    # File Organization Commands
+    organize_parser = subparsers.add_parser("organize", help="Organize files and monitor logs")
+    organize_parser.add_argument("--dir", help="Directory to organize files")
+    organize_parser.add_argument("--log-monitor", help="Log file to monitor for critical messages")
 
-if __name__ == '__main__':
+    # System Monitoring Commands
+    monitor_parser = subparsers.add_parser("monitor", help="Monitor system health")
+    monitor_parser.add_argument("--system", action="store_true", help="Monitor CPU and memory")
+    monitor_parser.add_argument("--disk", action="store_true", help="Check disk space")
+    monitor_parser.add_argument("--dir", help="Directory to check disk space")
+    monitor_parser.add_argument("--threshold", type=int, help="Disk space usage threshold")
+
+    args = parser.parse_args()
+
+    # Handle User Management
+    if args.command == "user":
+        if args.create:
+            create_user(args.username, args.role, args.password)
+        elif args.create_batch:
+            create_users_from_csv(args.create_batch)
+        elif args.delete:
+            delete_user(args.username)
+        elif args.update:
+            update_user(args.username, args.password)
+
+    # Handle File Organization
+    elif args.command == "organize":
+        if args.dir:
+            organize_files(args.dir)
+        if args.log_monitor:
+            monitor_logs(args.log_monitor)
+
+    # Handle System Monitoring
+    elif args.command == "monitor":
+        if args.system:
+            monitor_system()
+        if args.disk and args.dir and args.threshold:
+            check_disk_space(args.dir, args.threshold)
+
+if __name__ == "__main__":
     main()
