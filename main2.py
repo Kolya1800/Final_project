@@ -5,23 +5,13 @@ import crypt
 import pwd
 import subprocess
 import csv
-import logging
-
-# Set up logging
-logging.basicConfig(
-    filename="sys_admin.log", #change to your file name or make same one
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
 
 
 def user_exists(username) -> bool:
     try:
         pwd.getpwnam(username)
-        logging.info(f"Checked existence of user '{username}': EXISTS.")
         return True
-    except KeyError:
-        logging.info(f"Checked existence of user '{username}': DOES NOT EXIST.")
+    except:
         return False
 
 
@@ -59,27 +49,27 @@ def main():
 
     if args.option == "user":
 
-        if "create" in args:
+        if args.create:
             if not args.username or not args.password or not args.role:
                 print("You must include the username, password, and role.")
                 sys.exit(1)
             else:
                 create_user(args.username, args.password, args.role)
 
-        if "create_batch" in args:
+        if args.create_batch:
             if not args.filename:
                 print("You must include the filename.")
             else:
                 create_from_csv(args.filename)
 
-        if "delete" in args:
+        if args.delete:
             if not args.username:
                 print("You must include the username.")
                 sys.exit(1)
             else:
                 deletes_user(args.username)
 
-        if "update" in args:
+        if args.update:
             if not args.username or not args.newusername or not args.password or not args.role:
                 print("You must include the username, password, and role.")
                 sys.exit(1)
@@ -93,63 +83,37 @@ def main():
 def create_user(username: str, password: str, role: str):
     en_pwd = crypt.crypt(password)
     if user_exists(username):
-        logging.warning(f"Cannot create user '{username}': Already exists.")
-    try:
+        print(f"The user with name '{username}' already exists. Please try again.")
+    else:
         subprocess.call(["useradd", "-p", en_pwd, username])
-        logging.info(f"User '{username}' created successfully.")
-        if role == "admin":
-            subprocess.call(["usermod", "-g", "root", username])
-            logging.info(f"Granted root access to user '{username}'.")
-    except Exception as e:
-        logging.error(f"Error creating user '{username}': {e}")
+    if role == "admin":
+        subprocess.call(["usermod", "-g", "root", username])
 
 
 def create_user_two(username: str, role: str, password: str):
     if user_exists(username):
-        logging.warning(f"User '{username}' exists. Skipping creation.")
+        print(f"This user {username} exists. It was not created.")
     else:
         en_pwd = crypt.crypt(password)
-
         subprocess.call(["useradd", "-p", en_pwd, username])
-        # if role == "admin":
-        #     subprocess.call(["usermod", "-g", "root", username])
-
-        try:
-            subprocess.call(["useradd", "-p", en_pwd, username])
-            logging.info(f"User '{username}' created successfully.")
-            if role == "admin":
-                subprocess.call(["usermod", "-g", "root", username])
-            # if role.lower() == "admin":
-            #     subprocess.call(["usermod", "-aG", "root", username])
-                logging.info(f"Granted admin privileges to user '{username}'.")
-        except Exception as e:
-            logging.error(f"Error creating user '{username}': {e}")
+        if role == "admin":
+            subprocess.call(["usermod", "-g", "root", username])
 
 
-def create_from_csv(filename):
-    """Create users in batch from a CSV file."""
-    try:
-        with open(filename, "r") as fPtr:
-            reader = csv.reader(fPtr)
-            next(reader)  # Skip header row
-            for row in reader:
-                create_user_two(row[0], row[1], row[2])
-        logging.info(f"Batch creation from '{filename}' completed successfully.")
-    except FileNotFoundError:
-        logging.error(f"CSV file '{filename}' not found.")
-    except Exception as e:
-        logging.error(f"Error creating users from CSV file '{filename}': {e}")
+def create_from_csv(filename: str):
+    with open(filename, "r") as fPtr:
+        reader = csv.reader(fPtr)
+        next(reader)
+        for row in reader:
+            create_user_two(row[0], row[1], row[2])
+        fPtr.close()
 
 
 def deletes_user(username: str):
     if user_exists(username):
-        try:
-            subprocess.call(["userdel", "-r", username])
-            logging.info(f"User '{username}' deleted successfully.")
-        except Exception as e:
-            logging.error(f"Failed to delete user '{username}': {e}")
+        subprocess.call(["deluser", "--remove-all-files", username])
     else:
-        logging.warning(f"Cannot delete user '{username}': Does not exist.")
+        print(f"The user '{username}' does not exist and cannot be deleted.")
 
 
 def modify_user(old_username: str, new_username: str, new_password: str, new_role: str):
